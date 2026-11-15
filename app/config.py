@@ -3,15 +3,27 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 from pathlib import Path
 
+FROZEN = getattr(sys, "frozen", False)  # running as the packaged .exe
 BASE_DIR = Path(__file__).resolve().parent.parent
 APP_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path(os.environ.get("CLIPPER_DATA_DIR", BASE_DIR / "data")).resolve()
+if FROZEN:
+    # Program Files isn't writable; keep videos/clips/settings in the user's AppData.
+    _default_data = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "ViralClipper"
+    # FFmpeg, FFprobe and Deno ship in the bin folder next to the .exe
+    _bin = Path(sys.executable).resolve().parent / "bin"
+    if _bin.is_dir():
+        os.environ["PATH"] = str(_bin) + os.pathsep + os.environ.get("PATH", "")
+else:
+    _default_data = BASE_DIR / "data"
+DATA_DIR = Path(os.environ.get("CLIPPER_DATA_DIR", _default_data)).resolve()
 JOBS_DIR = DATA_DIR / "jobs"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 FONT_PATH = APP_DIR / "assets" / "fonts" / "Inter-Black.otf"
+CASCADE_DIR = APP_DIR / "assets" / "haarcascades"
 
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
 

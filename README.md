@@ -23,7 +23,20 @@ AI finds the most viral moments and gives you **vertical 9:16 clips with animate
 
 Download clips one at a time or all at once as a ZIP that includes the titles, captions and hashtags.
 
-## Setup (one time)
+## Windows: download the app (easiest)
+
+Go to [**Releases**](https://github.com/txgman/viral-clipper/releases/latest), download
+`ViralClipper-Setup-….exe` and run it. Python and FFmpeg are not needed; everything is included. The app opens
+in your browser. A black window also opens and shows the app's address. Keep it open while you use the app, and
+close it to quit. Your clips are saved in `%LOCALAPPDATA%\ViralClipper`.
+
+Windows may show "Windows protected your PC" because the app isn't code-signed. Click **More info → Run anyway**.
+
+Prefer not to install? Download `ViralClipper-Portable-….zip`, unzip it, and run `ViralClipper.exe`.
+
+## Run from source (Windows, macOS, Linux)
+
+### Setup (one time)
 
 You need **Python 3.10+**, **FFmpeg**, and, for YouTube links, **Deno** or **Node.js**.
 
@@ -33,7 +46,7 @@ You need **Python 3.10+**, **FFmpeg**, and, for YouTube links, **Deno** or **Nod
 | **macOS** | `brew install python ffmpeg deno` |
 | **Ubuntu/Debian** | `sudo apt install python3 python3-venv ffmpeg nodejs` |
 
-## Start it
+### Start it
 
 - **Windows:** double-click `run.bat`
 - **macOS / Linux:** run `./run.sh` in a terminal
@@ -96,6 +109,8 @@ app/
   render.py      face tracking, vertical reframing, captions, encoding
   media.py       ffmpeg helpers
   static/        the website (HTML/CSS/JS)
+packaging/       Windows .exe build (PyInstaller spec, installer, end-to-end test)
+.github/workflows/build-windows.yml   builds, tests and publishes the Windows app on every push
 ```
 
 Caption font: Inter (SIL Open Font License, see `app/assets/fonts/OFL.txt`).

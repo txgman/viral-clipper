@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from .config import FONT_PATH
+from .config import CASCADE_DIR, FONT_PATH
 
 OUT_W, OUT_H, FPS = 1080, 1920, 30
 SAMPLE_FPS = 6
@@ -38,11 +38,11 @@ def work_size(w: int, h: int) -> tuple[int, int]:
 # --------------------------------------------------------------------------- framing analysis
 
 def _cascades():
-    base = Path(cv2.data.haarcascades)
+    base = CASCADE_DIR
     front = cv2.CascadeClassifier(str(base / "haarcascade_frontalface_alt2.xml"))
     profile = cv2.CascadeClassifier(str(base / "haarcascade_profileface.xml"))
     if front.empty():
-        raise RenderError("OpenCV face model missing. Reinstall opencv-python-headless<5.")
+        raise RenderError(f"Face detection model missing from {base}.")
     return front, profile
 
 

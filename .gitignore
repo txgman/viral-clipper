@@ -3,3 +3,6 @@ data/
 __pycache__/
 *.pyc
 dist/
+packaging/bin/
+packaging/icon.ico
+build/

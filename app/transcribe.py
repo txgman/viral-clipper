@@ -1,6 +1,7 @@
 """Speech-to-text with word-level timestamps (faster-whisper, runs locally)."""
 from __future__ import annotations
 
+import os
 import threading
 import wave
 from pathlib import Path
@@ -18,10 +19,15 @@ def _load(name: str):
 
     with _lock:
         if name not in _models:
-            if ctranslate2.get_cuda_device_count() > 0:
-                _models[name] = WhisperModel(name, device="cuda", compute_type="float16")
-            else:
-                _models[name] = WhisperModel(name, device="cpu", compute_type="int8")
+            model = None
+            if os.environ.get("CLIPPER_DEVICE", "auto") != "cpu" and ctranslate2.get_cuda_device_count() > 0:
+                try:  # an NVIDIA GPU is only usable if the CUDA/cuDNN libraries are installed too
+                    model = WhisperModel(name, device="cuda", compute_type="float16")
+                    segs, _ = model.transcribe(np.zeros(16000, np.float32), language="en")
+                    list(segs)
+                except Exception:  # noqa: BLE001 - fall back to CPU on any GPU problem
+                    model = None
+            _models[name] = model or WhisperModel(name, device="cpu", compute_type="int8")
         return _models[name]
 
 
