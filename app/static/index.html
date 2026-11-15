@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Viral Clipper</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">▶</span> Viral Clipper</div>
+    <div class="top-actions">
+      <span id="ai-pill" class="pill">…</span>
+      <button id="open-settings" class="btn ghost">Settings</button>
+    </div>
+  </header>
+
+  <div id="banners"></div>
+
+  <main>
+    <section class="composer card">
+      <h1>Turn long videos into <span class="grad">viral shorts</span></h1>
+      <p class="sub">Paste a YouTube link (or any video link), or upload a file. AI finds the most viral moments and
+        exports vertical 9:16 clips with captions, ready for TikTok, Instagram Reels and YouTube Shorts.</p>
+
+      <form id="job-form">
+        <div class="tabs" role="tablist">
+          <button type="button" class="tab active" data-tab="link" role="tab">🔗 Paste link</button>
+          <button type="button" class="tab" data-tab="file" role="tab">⬆ Upload video</button>
+        </div>
+
+        <div class="tab-panel" data-panel="link">
+          <input id="url" name="url" type="url" inputmode="url" autocomplete="off"
+                 placeholder="https://www.youtube.com/watch?v=…   (YouTube, TikTok, X, Vimeo, Twitch, direct .mp4…)">
+        </div>
+        <div class="tab-panel hidden" data-panel="file">
+          <label id="drop" class="drop">
+            <input id="file" name="file" type="file" accept="video/*,.mkv,.mov,.webm,.avi,.m4v,.ts">
+            <span id="drop-text"><b>Drop a video here</b> or click to choose</span>
+          </label>
+        </div>
+
+        <div class="options">
+          <label>Clips
+            <select name="count">
+              <option>1</option><option>2</option><option selected>3</option><option>4</option>
+              <option>5</option><option>6</option><option>8</option><option>10</option>
+            </select>
+          </label>
+          <label>Length
+            <select name="length">
+              <option value="15-30">15–30 s</option>
+              <option value="20-60" selected>20–60 s</option>
+              <option value="30-90">30–90 s</option>
+              <option value="60-180">1–3 min</option>
+            </select>
+          </label>
+          <label>Framing
+            <select name="layout">
+              <option value="auto" selected>Auto (smart)</option>
+              <option value="track">Follow the speaker's face</option>
+              <option value="fit">Full frame + blurred background</option>
+              <option value="center">Center crop</option>
+            </select>
+          </label>
+          <label>Captions
+            <select name="captions">
+              <option value="yellow" selected>Bold, yellow highlight</option>
+              <option value="green">Bold, green highlight</option>
+              <option value="white">Bold, white</option>
+              <option value="none">No captions</option>
+            </select>
+          </label>
+          <label>Language
+            <select name="language">
+              <option value="" selected>Auto-detect</option>
+              <option value="en">English</option><option value="es">Spanish</option>
+              <option value="pt">Portuguese</option><option value="fr">French</option>
+              <option value="de">German</option><option value="it">Italian</option>
+              <option value="hi">Hindi</option><option value="ar">Arabic</option>
+              <option value="ja">Japanese</option><option value="ko">Korean</option>
+              <option value="zh">Chinese</option><option value="ru">Russian</option>
+              <option value="tr">Turkish</option><option value="nl">Dutch</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="submit-row">
+          <button id="submit" class="btn primary" type="submit">✨ Find viral clips</button>
+          <span id="form-msg" class="form-msg"></span>
+        </div>
+      </form>
+    </section>
+
+    <section id="jobs"></section>
+    <p id="empty" class="empty hidden">Your clips will show up here.</p>
+  </main>
+
+  <dialog id="settings">
+    <form method="dialog" id="settings-form">
+      <h2>Settings</h2>
+      <label class="field">Anthropic API key (for Claude)
+        <input type="password" name="anthropic_api_key" autocomplete="off" placeholder="sk-ant-…">
+        <button type="button" id="clear-key" class="btn small ghost hidden" style="align-self:flex-start">Remove saved key</button>
+        <small id="key-hint">Claude reads the transcript and picks the moments with the best hooks and payoffs.
+          Without a key the app uses its built-in scoring. Get a key at console.anthropic.com.</small>
+      </label>
+      <label class="field">Speech recognition model
+        <select name="whisper_model">
+          <option value="tiny">tiny: fastest, least accurate</option>
+          <option value="base">base: fast</option>
+          <option value="small">small: balanced (recommended)</option>
+          <option value="medium">medium: more accurate, slower</option>
+          <option value="large-v3">large-v3: most accurate, needs a strong PC or GPU</option>
+        </select>
+      </label>
+      <label class="field">Use cookies from browser (for YouTube sign-in checks)
+        <select name="cookies_from_browser">
+          <option value="">Don't use cookies</option>
+          <option value="chrome">Chrome</option><option value="edge">Edge</option>
+          <option value="firefox">Firefox</option><option value="brave">Brave</option>
+          <option value="safari">Safari</option><option value="opera">Opera</option>
+          <option value="vivaldi">Vivaldi</option>
+        </select>
+        <small>Only needed if YouTube says "Sign in to confirm you're not a bot".</small>
+      </label>
+      <div class="dialog-actions">
+        <button value="cancel" class="btn ghost" formnovalidate>Close</button>
+        <button id="save-settings" value="default" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

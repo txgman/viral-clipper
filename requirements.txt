@@ -1,0 +1,10 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+yt-dlp[default]>=2026.10.26
+faster-whisper>=1.1
+# OpenCV 5 no longer ships the face-detection models this app uses
+opencv-python-headless>=4.10,<5
+anthropic>=2.8
+numpy>=1.26
+pillow>=10.1
