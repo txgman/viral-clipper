@@ -36,6 +36,9 @@ DEFAULT_SETTINGS = {
     # Browser to borrow YouTube cookies from when YouTube asks you to sign in
     # ("chrome", "firefox", "edge", "safari", "brave"...). Empty = no cookies.
     "cookies_from_browser": "",
+    # Your own TikTok developer app (developers.tiktok.com) for auto-posting. Stays on this computer.
+    "tiktok_client_key": "",
+    "tiktok_client_secret": "",
 }
 
 _lock = threading.Lock()

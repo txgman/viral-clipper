@@ -1,5 +1,6 @@
 """Start the web app: python -m app [--host 127.0.0.1] [--port 8000] [--no-browser]"""
 import argparse
+import os
 import socket
 import sys
 import threading
@@ -9,6 +10,8 @@ import webbrowser
 def _free_port(host: str, start: int) -> int:
     for port in range(start, start + 50):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if os.name != "nt":  # match uvicorn: a port in TIME_WAIT after a restart is still usable
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 s.bind((host if host != "0.0.0.0" else "", port))
                 return port

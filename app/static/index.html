@@ -12,6 +12,7 @@
     <div class="brand"><span class="logo">▶</span> Viral Clipper</div>
     <div class="top-actions">
       <span id="ai-pill" class="pill">…</span>
+      <button id="open-tiktok" class="btn ghost tt-btn"><span class="tt-dot"></span><span id="tt-label">TikTok</span></button>
       <button id="open-settings" class="btn ghost">Settings</button>
     </div>
   </header>
@@ -128,6 +129,95 @@
       <div class="dialog-actions">
         <button value="cancel" class="btn ghost" formnovalidate>Close</button>
         <button id="save-settings" value="default" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="tiktok-dialog">
+    <div class="dlg">
+      <h2>TikTok</h2>
+      <div id="tt-body"></div>
+      <div class="dialog-actions"><button class="btn ghost" data-close>Close</button></div>
+    </div>
+  </dialog>
+
+  <dialog id="post-dialog" class="wide">
+    <form id="post-form" class="dlg" novalidate>
+      <div class="pd-head">
+        <h2 id="pd-heading">Post to TikTok</h2>
+        <div id="pd-creator" class="pd-creator">Loading your TikTok account…</div>
+      </div>
+      <div id="pd-error" class="error hidden"></div>
+
+      <div class="pd-mode seg" role="radiogroup">
+        <label><input type="radio" name="pd-mode" value="direct" checked> Post directly</label>
+        <label><input type="radio" name="pd-mode" value="draft"> Send to TikTok drafts</label>
+      </div>
+      <p id="pd-draft-note" class="hint hidden">TikTok will send a notification to your TikTok app. Open it to finish
+        posting from TikTok's editor. TikTok doesn't accept captions for drafts, so use <b>Copy</b> to paste your
+        caption there.</p>
+
+      <div id="pd-items" class="pd-items"></div>
+
+      <div id="pd-direct-settings" class="pd-settings">
+        <label class="field">Who can view this video
+          <select id="pd-privacy" required>
+            <option value="" disabled selected>Select who can view…</option>
+          </select>
+        </label>
+        <fieldset class="field">
+          <legend>Allow users to</legend>
+          <div class="checks">
+            <label><input type="checkbox" id="pd-comment"> Comment</label>
+            <label><input type="checkbox" id="pd-duet"> Duet</label>
+            <label><input type="checkbox" id="pd-stitch"> Stitch</label>
+          </div>
+        </fieldset>
+        <div class="field">
+          <label class="switch"><input type="checkbox" id="pd-disclose"><span><b>Disclose video content</b>
+            <small>Turn on if this video promotes yourself, a brand, product or service.</small></span></label>
+          <div id="pd-disclose-opts" class="checks col hidden">
+            <label><input type="checkbox" id="pd-brand-own"> <span><b>Your brand</b><br><small>You are promoting
+              yourself or your own business.</small></span></label>
+            <label><input type="checkbox" id="pd-brand-paid"> <span><b>Branded content</b><br><small>You are
+              promoting another brand or a third party.</small></span></label>
+            <p id="pd-label-note" class="hint"></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="pd-when">
+        <label class="field">When
+          <select id="pd-when">
+            <option value="now">Post now</option>
+            <option value="later">Schedule for later</option>
+          </select>
+        </label>
+        <label class="field hidden" id="pd-at-wrap">Start at
+          <input type="datetime-local" id="pd-at">
+        </label>
+        <label class="field" id="pd-interval-wrap">Space posts out
+          <select id="pd-interval">
+            <option value="0">All at once</option>
+            <option value="60">1 hour apart</option>
+            <option value="120">2 hours apart</option>
+            <option value="180" selected>3 hours apart</option>
+            <option value="360">6 hours apart</option>
+            <option value="720">12 hours apart</option>
+            <option value="1440">1 day apart</option>
+          </select>
+        </label>
+      </div>
+
+      <ul class="pd-notes">
+        <li>After posting, it may take a few minutes for videos to process and appear on your profile.</li>
+        <li>Scheduled posts go out while Viral Clipper is running. Keep the app open, or posts that are due will go out the next time you start it.</li>
+        <li>While your TikTok developer app hasn't passed TikTok's audit, your TikTok account must be private and posts are visible only to you.</li>
+      </ul>
+      <p id="pd-declaration" class="declaration"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" id="pd-submit" class="btn primary">Post</button>
       </div>
     </form>
   </dialog>

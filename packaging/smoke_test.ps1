@@ -34,7 +34,10 @@ if ($LASTEXITCODE -ne 0) { throw "could not create test video" }
 $server = Start-Process python -ArgumentList "-m", "http.server", "8765", "--bind", "127.0.0.1" `
     -WorkingDirectory $work -PassThru -WindowStyle Hidden
 
-# 3. Launch the packaged app
+# 3. Launch the packaged app (TikTok calls go to a local mock of TikTok's API that enforces its documented rules)
+$mock = Start-Process python -ArgumentList "tests/mock_tiktok.py", "--port", "9555" -PassThru -WindowStyle Hidden
+$env:CLIPPER_TIKTOK_AUTH_URL = "http://127.0.0.1:9555/v2/auth/authorize/"
+$env:CLIPPER_TIKTOK_API_BASE = "http://127.0.0.1:9555"
 $env:CLIPPER_DATA_DIR = Join-Path $work "data"
 $env:CLIPPER_WHISPER_MODEL = "tiny"
 $app = Start-Process $Exe -ArgumentList "--no-browser", "--port", "8123" -PassThru `
@@ -86,7 +89,8 @@ try {
     # 4. Link job
     Write-Host "== Link job"
     $r = curl.exe -s -F "url=http://127.0.0.1:8765/test.mp4" -F "count=2" -F "min_len=10" -F "max_len=25" "$base/api/jobs" | ConvertFrom-Json
-    Test-Clips (Wait-Job $r.id 20) "link"
+    $linkJob = Wait-Job $r.id 20
+    Test-Clips $linkJob "link"
 
     # 5. Upload job
     Write-Host "== Upload job"
@@ -94,7 +98,30 @@ try {
     $r = curl.exe -s -F "file=@$video" -F "count=1" -F "min_len=10" -F "max_len=25" -F "layout=fit" -F "captions=green" "$base/api/jobs" | ConvertFrom-Json
     Test-Clips (Wait-Job $r.id 20) "upload"
 
-    # 6. YouTube (informational: YouTube sometimes blocks cloud servers like GitHub's)
+    # 6. TikTok: connect (OAuth + PKCE) and post a clip
+    Write-Host "== TikTok posting (mock TikTok API)"
+    $body = @{ tiktok_client_key = "mock_client_key"; tiktok_client_secret = "mock_client_secret" } | ConvertTo-Json
+    Invoke-RestMethod -Method Post "$base/api/settings" -ContentType "application/json" -Body $body | Out-Null
+    $final = curl.exe -s -L -o NUL -w "%{url_effective}" "$base/api/tiktok/connect"
+    if ($final -notmatch "tiktok=connected") { Show-Logs; throw "TikTok connect flow failed (ended at $final)" }
+    $tts = Invoke-RestMethod "$base/api/tiktok/status"
+    if ($tts.account.display_name -ne "Clip Fan") { throw "TikTok account not stored" }
+    $post = @{ items = @(@{ job_id = $linkJob.id; index = 1; title = "Smoke test caption #test" }); mode = "direct";
+               privacy_level = "SELF_ONLY"; consent = $true } | ConvertTo-Json -Depth 5
+    $created = Invoke-RestMethod -Method Post "$base/api/tiktok/posts" -ContentType "application/json" -Body $post
+    $deadline = (Get-Date).AddMinutes(4)
+    do {
+        Start-Sleep 5
+        $p = (Invoke-RestMethod "$base/api/tiktok/posts") | Where-Object { $_.id -eq $created[0].id }
+        Write-Host "  TikTok post: $($p.status) $($p.error)"
+    } while ($p.status -notin @("posted", "failed") -and (Get-Date) -lt $deadline)
+    if ($p.status -ne "posted") { Show-Logs; throw "TikTok post did not complete: $($p.status) $($p.error)" }
+    $mstate = Invoke-RestMethod "http://127.0.0.1:9555/mock/state"
+    $up = $mstate.posts | Select-Object -First 1
+    if ($up.received -ne $up.size -or $up.post_info.privacy_level -ne "SELF_ONLY") { throw "TikTok upload incomplete" }
+    Write-Host "TIKTOK: OK (uploaded $($up.size) bytes)"
+
+    # 7. YouTube (informational: YouTube sometimes blocks cloud servers like GitHub's)
     Write-Host "== YouTube job (informational)"
     $r = curl.exe -s -F "url=https://www.youtube.com/watch?v=jNQXAC9IVRw" -F "count=1" -F "min_len=5" -F "max_len=15" "$base/api/jobs" | ConvertFrom-Json
     $yt = Wait-Job $r.id 15
@@ -106,4 +133,5 @@ try {
     Show-Logs
     Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
     Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+    Stop-Process -Id $mock.Id -Force -ErrorAction SilentlyContinue
 }

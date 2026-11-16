@@ -7,16 +7,21 @@ import shutil
 import zipfile
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+import time
+import urllib.parse
+
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import config
+from . import config, selector, tiktok
 from .jobs import JobStore
+from .poster import Poster
 
 app = FastAPI(title="Viral Clipper")
 store = JobStore()
+poster = Poster()
 STATIC = config.APP_DIR / "static"
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
@@ -165,13 +170,16 @@ class SettingsIn(BaseModel):
     claude_model: str | None = None
     whisper_model: str | None = None
     cookies_from_browser: str | None = None
+    tiktok_client_key: str | None = None
+    tiktok_client_secret: str | None = None
 
 
 def _public_settings(s: dict) -> dict:
     key = s.get("anthropic_api_key", "")
-    out = {k: v for k, v in s.items() if k != "anthropic_api_key"}
+    out = {k: v for k, v in s.items() if k not in ("anthropic_api_key", "tiktok_client_secret")}
     out["anthropic_api_key_set"] = bool(key)
     out["anthropic_api_key_hint"] = f"…{key[-4:]}" if len(key) > 8 else ""
+    out["tiktok_client_secret_set"] = bool(s.get("tiktok_client_secret"))
     return out
 
 
@@ -186,3 +194,161 @@ def update_settings(body: SettingsIn):
     if data.get("whisper_model") is not None and not data["whisper_model"].strip():
         data["whisper_model"] = None
     return _public_settings(config.save_settings(data))
+
+
+# --------------------------------------------------------------------------- TikTok
+
+@app.get("/api/tiktok/status")
+def tiktok_status(request: Request):
+    port = request.url.port or 80
+    return {
+        "configured": tiktok.configured(),
+        "account": tiktok.public_account(),
+        "redirect_uri": f"http://127.0.0.1:*{tiktok.CALLBACK_PATH}",
+        "this_redirect_uri": f"http://127.0.0.1:{port}{tiktok.CALLBACK_PATH}",
+    }
+
+
+@app.get("/api/tiktok/connect")
+def tiktok_connect(request: Request):
+    if not tiktok.configured():
+        raise HTTPException(400, "Add your TikTok Client key and Client secret first.")
+    redirect_uri = f"http://127.0.0.1:{request.url.port or 80}{tiktok.CALLBACK_PATH}"
+    return RedirectResponse(tiktok.authorize_url(redirect_uri), status_code=302)
+
+
+@app.get(tiktok.CALLBACK_PATH)
+def tiktok_callback(code: str = "", state: str = "", error: str = "", error_description: str = ""):
+    def back(**q):
+        return RedirectResponse("/?" + urllib.parse.urlencode(q), status_code=302)
+    if error:
+        return back(tiktok_error=error_description or error)
+    try:
+        tiktok.complete_login(state, code)
+    except tiktok.TikTokError as e:
+        return back(tiktok_error=str(e))
+    return back(tiktok="connected")
+
+
+@app.post("/api/tiktok/disconnect")
+def tiktok_disconnect():
+    tiktok.disconnect()
+    return {"ok": True}
+
+
+def _tiktok_call(fn, *args):
+    try:
+        return fn(*args)
+    except tiktok.NotConnected as e:
+        raise HTTPException(401, str(e)) from None
+    except tiktok.TikTokError as e:
+        raise HTTPException(502, str(e)) from None
+
+
+@app.get("/api/tiktok/creator")
+def tiktok_creator():
+    """Fresh creator info: TikTok requires showing it on the post screen every time."""
+    return _tiktok_call(tiktok.creator_info)
+
+
+class CaptionIn(BaseModel):
+    job_id: str
+    index: int
+
+
+@app.post("/api/tiktok/captions")
+def tiktok_captions(body: CaptionIn):
+    job = _job_or_404(body.job_id)
+    clip = next((c for c in job["clips"] if c["index"] == body.index), None)
+    if not clip:
+        raise HTTPException(404, "Clip not found")
+    key = config.anthropic_api_key()
+    if not key:
+        raise HTTPException(400, "Smart captions use Claude. Add your Anthropic API key in Settings first.")
+    try:
+        options = selector.tiktok_captions(clip, job["title"], key,
+                                           config.load_settings().get("claude_model") or "claude-opus-5-5")
+    except selector.AIError as e:
+        raise HTTPException(502, str(e)) from None
+    return {"options": options}
+
+
+class PostItem(BaseModel):
+    job_id: str
+    index: int
+    title: str = ""
+
+
+class PostsIn(BaseModel):
+    items: list[PostItem]
+    mode: str  # "direct" or "draft"
+    privacy_level: str | None = None
+    allow_comment: bool = False
+    allow_duet: bool = False
+    allow_stitch: bool = False
+    brand_organic: bool = False
+    branded_content: bool = False
+    consent: bool = False
+    start_at: float | None = None  # unix seconds; None = now
+    interval_minutes: float = 0
+
+
+@app.post("/api/tiktok/posts")
+def create_posts(body: PostsIn):
+    acc = tiktok.public_account()
+    if not acc:
+        raise HTTPException(401, "Connect your TikTok account first.")
+    if not body.consent:
+        raise HTTPException(400, "You need to confirm before posting.")
+    if body.mode not in ("direct", "draft"):
+        raise HTTPException(400, "Unknown posting mode.")
+    if body.mode == "direct":
+        if not acc["can_post"]:
+            raise HTTPException(400, "TikTok didn't grant direct posting (video.publish). Reconnect TikTok.")
+        if not body.privacy_level:
+            raise HTTPException(400, "Choose who can view the post.")
+        if body.branded_content and body.privacy_level == "SELF_ONLY":
+            raise HTTPException(400, "Branded content visibility cannot be set to private.")
+    elif not acc["can_draft"]:
+        raise HTTPException(400, "TikTok didn't grant draft uploads (video.upload). Reconnect TikTok.")
+    if not 1 <= len(body.items) <= 30:
+        raise HTTPException(400, "Choose between 1 and 30 clips.")
+    if not 0 <= body.interval_minutes <= 7 * 24 * 60:
+        raise HTTPException(400, "Spacing between posts must be at most a week.")
+    items = []
+    for it in body.items:
+        job = _job_or_404(it.job_id)
+        clip = next((c for c in job["clips"] if c["index"] == it.index and c.get("status") == "done"), None)
+        if not clip:
+            raise HTTPException(400, f"Clip {it.index} isn't ready.")
+        if len(it.title.encode("utf-16-le")) // 2 > 2200:
+            raise HTTPException(400, f"The caption for clip {it.index} is longer than 2,200 characters.")
+        items.append({"job_id": it.job_id, "index": it.index, "title": it.title, "clip_title": clip["title"]})
+    start = body.start_at if body.start_at and body.start_at > time.time() else time.time()
+    settings = body.model_dump(exclude={"items", "start_at", "interval_minutes", "consent"})
+    return poster.create(items, settings, start, body.interval_minutes)
+
+
+@app.get("/api/tiktok/posts")
+def list_posts():
+    return poster.list()
+
+
+@app.post("/api/tiktok/posts/{post_id}/cancel")
+def cancel_post(post_id: str):
+    if not poster.cancel(post_id):
+        raise HTTPException(400, "Only scheduled posts can be cancelled.")
+    return {"ok": True}
+
+
+@app.post("/api/tiktok/posts/{post_id}/retry")
+def retry_post(post_id: str):
+    if not poster.retry(post_id):
+        raise HTTPException(400, "Only failed or cancelled posts can be retried.")
+    return {"ok": True}
+
+
+@app.delete("/api/tiktok/posts/{post_id}")
+def remove_post(post_id: str):
+    poster.remove(post_id)
+    return {"ok": True}

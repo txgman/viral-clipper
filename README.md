@@ -60,6 +60,45 @@ Click **Settings** in the app and paste an Anthropic API key from https://consol
 You can also set the `ANTHROPIC_API_KEY` environment variable before starting. Clips are picked by
 Claude Opus 5.5. Analyzing an hour-long video typically costs well under $0.50 in API usage.
 
+## Auto-post to TikTok
+
+Link your TikTok account and Viral Clipper posts clips for you, either right away or on a schedule (for example
+one every 3 hours). It uses TikTok's official Content Posting API.
+
+- **Smart captions:** click ✨ *Smart caption* on any clip. Claude writes three TikTok-style captions with
+  hashtags, and you can edit them before posting.
+- **Post all to TikTok:** queue every clip from a video at once and space them out. TikTok allows about 15 posts
+  a day per account through its API.
+- **Send to TikTok drafts:** uploads the clip to your TikTok inbox, and you finish posting in the TikTok app.
+  TikTok doesn't accept captions for drafts, so use *Copy* to paste your caption there.
+
+### One-time setup (about 10 minutes)
+
+TikTok only lets apps post through a developer app that you register yourself, so each user creates their own:
+
+1. Go to [developers.tiktok.com](https://developers.tiktok.com/apps), sign in, open **Manage apps**, and click
+   **Connect an app**.
+2. Switch the toggle next to the app's name to **Sandbox** and create a sandbox. This lets you post without
+   waiting for TikTok's review.
+3. Add the products **Login Kit** and **Content Posting API**. In Content Posting API, turn on **Direct Post**.
+4. Turn on the scopes `user.info.basic`, `video.publish` and `video.upload`.
+5. In Login Kit, choose platform **Desktop** and add the redirect URI `http://127.0.0.1:*/api/tiktok/callback/`.
+6. Under **Sandbox settings → Target users**, add your TikTok account.
+7. In Viral Clipper, click **Connect TikTok** in the top bar, paste the **Client key** and **Client secret**, and
+   then click **Connect TikTok account**.
+
+### TikTok's limits (set by TikTok, not this app)
+
+- Until TikTok audits your developer app, **your TikTok account must be set to private** while posting, and posts
+  are visible only to you ("Only me"). To show a post publicly later, switch your account to public, then change
+  that video's privacy to *Everyone* in the TikTok app. To post publicly straight away, submit your app for
+  TikTok's audit from the developer portal.
+- **Send to TikTok drafts** gets around the private-only limit, because you publish the draft yourself in the
+  TikTok app. It needs the `video.upload` scope.
+- Scheduled posts go out while Viral Clipper is running. Posts that come due while it's closed go out the next
+  time you start it.
+- Your client secret and TikTok login stay on your computer, in the app's data folder.
+
 ## Options
 
 | Option | What it does |
@@ -92,7 +131,7 @@ about 10 minutes), and each 30-second clip renders in about 20 seconds. A GPU ma
 ## Privacy
 
 Everything runs on your computer. If you add an Anthropic API key, only the video's **transcript text and title**
-are sent to Claude, never the video itself. Videos and clips are stored in the `data/` folder. Deleting a video in
+are sent to Claude, never the video itself. Clips are sent to TikTok only when you post or schedule them. Videos and clips are stored in the `data/` folder. Deleting a video in
 the app removes its files.
 
 Only clip videos you have the rights to use.
@@ -107,9 +146,12 @@ app/
   transcribe.py  faster-whisper transcription
   selector.py    viral-moment picking (Claude + built-in scorer)
   render.py      face tracking, vertical reframing, captions, encoding
+  tiktok.py      TikTok login (OAuth + PKCE) and Content Posting API client
+  poster.py      TikTok posting queue and scheduler
   media.py       ffmpeg helpers
   static/        the website (HTML/CSS/JS)
 packaging/       Windows .exe build (PyInstaller spec, installer, end-to-end test)
+tests/mock_tiktok.py   strict local stand-in for TikTok's API, used by the end-to-end tests
 .github/workflows/build-windows.yml   builds, tests and publishes the Windows app on every push
 ```
 

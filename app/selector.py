@@ -5,6 +5,7 @@ Fallback (no API key / API error): a built-in scorer using vocal energy, hook wo
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import re
@@ -240,8 +241,8 @@ numbers.
 - title: punchy upload title, at most 70 characters, accurate (no misleading clickbait).
 - hook: the clip's opening line, as spoken.
 - reason: one or two sentences on why this moment will perform.
-- caption: a 1-2 sentence upload description in the creator's voice.
-- hashtags: 3-6 relevant hashtags, each starting with #.
+- caption: a TikTok-ready caption in the creator's voice: one hook-first line that creates curiosity without giving away the payoff, optionally followed by a short question that invites comments. At most 150 characters, no hashtags in this field.
+- hashtags: 3-5 specific, relevant hashtags, each starting with #. Mix one broader topic tag with niche ones; avoid generic spam tags like #fyp, #viral or #foryou.
 - Write title, caption and hashtags in the language the video is spoken in."""
 
 CLIP_SCHEMA = {
@@ -290,15 +291,16 @@ def _lines(sents: list[dict], curve: np.ndarray) -> list[str]:
             for s, r in zip(sents, ranks)]
 
 
-def _call_claude(client, model: str, user_text: str) -> list[dict]:
+def _call_claude(client, model: str, user_text: str, system: str = SYSTEM_PROMPT, schema: dict = CLIP_SCHEMA,
+                 effort: str = "high", key: str = "clips", max_tokens: int = 16000) -> list[dict]:
     import anthropic
 
     common = dict(
         model=model,
-        max_tokens=16000,
-        system=SYSTEM_PROMPT,
+        max_tokens=max_tokens,
+        system=system,
         messages=[{"role": "user", "content": user_text}],
-        output_config={"effort": "high", "format": {"type": "json_schema", "schema": CLIP_SCHEMA}},
+        output_config={"effort": effort, "format": {"type": "json_schema", "schema": schema}},
     )
     try:
         # Server-side fallback re-runs the request on another model if this one declines.
@@ -314,7 +316,27 @@ def _call_claude(client, model: str, user_text: str) -> list[dict]:
     text = next((b.text for b in response.content if b.type == "text"), None)
     if not text:
         raise AIError("Claude returned no answer.")
-    return json.loads(text)["clips"]
+    return json.loads(text)[key]
+
+
+@contextlib.contextmanager
+def _api_errors():
+    import anthropic
+
+    try:
+        yield
+    except anthropic.AuthenticationError:
+        raise AIError("The Anthropic API key was rejected. Check it in Settings.") from None
+    except anthropic.PermissionDeniedError:
+        raise AIError("The Anthropic API key does not have access to this model.") from None
+    except anthropic.RateLimitError:
+        raise AIError("Anthropic rate limit reached. Try again in a minute.") from None
+    except anthropic.APIConnectionError:
+        raise AIError("Could not reach the Anthropic API (network problem).") from None
+    except anthropic.APIStatusError as e:
+        raise AIError(f"Anthropic API error ({e.status_code}): {e.message}") from None
+    except (ValueError, KeyError) as e:
+        raise AIError(f"Could not read Claude's answer: {e}") from None
 
 
 def claude_clips(sents: list[dict], curve: np.ndarray, duration: float, count: int, lo: float, hi: float,
@@ -335,7 +357,7 @@ def claude_clips(sents: list[dict], curve: np.ndarray, duration: float, count: i
         chunks.append(cur)
 
     raw: list[dict] = []
-    try:
+    with _api_errors():
         for idx, chunk in enumerate(chunks):
             want = count if len(chunks) == 1 else max(2, math.ceil(count * len(chunk) / len(lines)) + 1)
             part = f" (part {idx + 1} of {len(chunks)} of a long video)" if len(chunks) > 1 else ""
@@ -347,18 +369,6 @@ def claude_clips(sents: list[dict], curve: np.ndarray, duration: float, count: i
                 "<transcript>\n" + "\n".join(chunk) + "\n</transcript>"
             )
             raw.extend(_call_claude(client, model, user_text))
-    except anthropic.AuthenticationError:
-        raise AIError("The Anthropic API key was rejected. Check it in Settings.") from None
-    except anthropic.PermissionDeniedError:
-        raise AIError("The Anthropic API key does not have access to this model.") from None
-    except anthropic.RateLimitError:
-        raise AIError("Anthropic rate limit reached. Try again in a minute.") from None
-    except anthropic.APIConnectionError:
-        raise AIError("Could not reach the Anthropic API (network problem).") from None
-    except anthropic.APIStatusError as e:
-        raise AIError(f"Anthropic API error ({e.status_code}): {e.message}") from None
-    except (ValueError, KeyError) as e:
-        raise AIError(f"Could not read Claude's answer: {e}") from None
 
     clips = []
     for c in raw:
@@ -380,3 +390,65 @@ def claude_clips(sents: list[dict], curve: np.ndarray, duration: float, count: i
     if not clips:
         raise AIError("Claude did not return any usable clips.")
     return _non_overlapping(clips, count)
+
+
+# --------------------------------------------------------------------------- smart TikTok captions
+
+CAPTION_SYSTEM = """You write captions for short vertical videos posted to TikTok by the video's own creator. Captions should make viewers stop, watch to the end, and comment.
+
+Guidelines:
+- Lead with a hook: a curiosity gap, a bold claim from the clip, or a relatable feeling. Don't spoil the payoff.
+- Sound like a real person, not a brand. Short sentences. At most one emoji, and only if it fits.
+- Optionally end with a short question that invites comments.
+- Keep the caption text (without hashtags) under 150 characters.
+- 3-5 hashtags: specific to the topic and audience, plus at most one broader topic tag. Never use generic spam tags like #fyp, #foryou, #viral or #trending.
+- Be accurate to what is said in the clip. No misleading clickbait.
+- Write in the same language as the clip transcript.
+- Each option should take a different angle (e.g. curiosity, bold statement, relatable/question)."""
+
+CAPTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "options": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "caption": {"type": "string"},
+                    "hashtags": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["caption", "hashtags"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["options"],
+    "additionalProperties": False,
+}
+
+
+def tiktok_captions(clip: dict, video_title: str, api_key: str, model: str) -> list[dict]:
+    """Three alternative TikTok captions (caption text + hashtags) for one clip."""
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key, max_retries=2, timeout=180)
+    user_text = (
+        f"Source video title: {video_title}\n"
+        f"Clip title: {clip.get('title', '')}\n"
+        f"Why this clip should perform: {clip.get('reason', '')}\n"
+        f"Clip length: {clip.get('duration', 0):.0f} seconds\n\n"
+        f"<clip_transcript>\n{clip.get('transcript', '')}\n</clip_transcript>\n\n"
+        "Write 3 caption options for posting this clip on TikTok."
+    )
+    with _api_errors():
+        options = _call_claude(client, model, user_text, system=CAPTION_SYSTEM, schema=CAPTION_SCHEMA,
+                               effort="medium", key="options", max_tokens=8000)
+    out = []
+    for o in options:
+        tags = [t.strip().replace(" ", "") for t in o.get("hashtags", []) if t.strip()]
+        tags = [t if t.startswith("#") else "#" + t for t in tags][:6]
+        if o.get("caption", "").strip():
+            out.append({"caption": o["caption"].strip(), "hashtags": tags})
+    if not out:
+        raise AIError("Claude did not return any captions.")
+    return out[:3]
