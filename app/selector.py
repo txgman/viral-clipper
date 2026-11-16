@@ -134,6 +134,41 @@ def _keywords(text: str, k: int = 3) -> list[str]:
     return [w for w, _ in Counter(words).most_common(k)]
 
 
+FILLER = re.compile(
+    r"^(?:so|and|but|okay|ok|well|anyway|um+|uh+|like|yeah|yes|now|right|alright|look|listen|see|i mean|you know|"
+    r"actually|basically|honestly|oh)\b[,.!]?\s+", re.I)
+
+
+def tidy_title(text: str, n: int = 60) -> str:
+    """Clean a title: drop filler openers, quotes and trailing periods; cut long ones at a natural pause."""
+    t = re.sub(r"\s+", " ", text or "").strip().strip("\"'“”‘’ ")
+    for _ in range(3):
+        t2 = FILLER.sub("", t)
+        if t2 == t or len(t2) < 12:
+            break
+        t = t2
+    t = re.sub(r"[.,;:…]+$", "", t).strip()
+    if len(t) > n:
+        cut = max((m.start() for m in re.finditer(r"[,;:—–]| - ", t[: n + 1])), default=-1)
+        if cut >= 24:
+            t = t[:cut].rstrip()
+        else:
+            t = t[: n - 1].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+    return t[:1].upper() + t[1:] if t else t
+
+
+def heuristic_title(clip_sents: list[dict], energy: list[float] | None = None) -> str:
+    """Pick the clip's punchiest line: hook words, questions, short and emphatic beats early lines that are flat."""
+    def score(k, s):
+        words = len(s["text"].split())
+        e = energy[k] if energy is not None and k < len(energy) else 0.0
+        return (_hook_score(s["text"]) + (0.5 if s["text"].rstrip().endswith("?") else 0)
+                + (0.4 if 4 <= words <= 12 else 0.15 if words <= 18 else 0) + 0.35 * e - 0.08 * k)
+    cands = [(k, s) for k, s in enumerate(clip_sents) if len(s["text"].split()) >= 3] or list(enumerate(clip_sents[:1]))
+    best = max(cands, key=lambda ks: score(*ks))[1]
+    return tidy_title(best["text"])
+
+
 def _shorten(text: str, n: int = 70) -> str:
     text = text.strip()
     return text if len(text) <= n else text[: n - 1].rsplit(" ", 1)[0] + "…"
@@ -183,7 +218,7 @@ def heuristic_clips(sents: list[dict], curve: np.ndarray, duration: float,
         text = " ".join(sents[k]["text"] for k in range(i, j + 1))
         candidates.append({
             "start": start, "end": end, "score": int(round(50 + 45 * pct)),
-            "title": _shorten(sents[i]["text"]),
+            "title": heuristic_title(sents[i:j + 1], list(ez[i:j + 1])),
             "hook": sents[i]["text"],
             "reason": "High vocal energy and a strong opening line (built-in scoring).",
             "caption": _shorten(text, 150),
@@ -238,7 +273,12 @@ numbers.
 - Clip duration (end time of end_line minus start time of start_line) must be within the requested range.
 - Clips must not overlap.
 - Order clips best first. viral_score is 0-100; be honest and reserve 90+ for exceptional moments.
-- title: punchy upload title, at most 70 characters, accurate (no misleading clickbait).
+- title: the clip's headline, used as the YouTube Shorts title and on-screen hook. 3-10 words, at most 60 \
+characters. Lead with the most intriguing specific detail (a number, a bold claim, a surprising outcome, a sharp \
+question) and open a curiosity gap without giving away the payoff. Write it the way a creator would: sentence case, \
+plain words, no quotes, emojis, hashtags or trailing period. It must be accurate to what is said: no misleading \
+clickbait. Style examples: "The interview question that got me hired", "Why your savings never grow", \
+"I quit my job over one email". Each clip's title must be distinct.
 - hook: the clip's opening line, as spoken.
 - reason: one or two sentences on why this moment will perform.
 - caption: a TikTok-ready caption in the creator's voice: one hook-first line that creates curiosity without giving away the payoff, optionally followed by a short question that invites comments. At most 150 characters, no hashtags in this field.
@@ -381,7 +421,7 @@ def claude_clips(sents: list[dict], curve: np.ndarray, duration: float, count: i
         clips.append({
             "start": start, "end": end,
             "score": int(max(0, min(100, int(c.get("viral_score", 50))))),
-            "title": _shorten(c.get("title") or sents[i]["text"]),
+            "title": tidy_title(c.get("title") or "", 70) or heuristic_title(sents[i:j + 1]),
             "hook": c.get("hook") or sents[i]["text"],
             "reason": c.get("reason", ""),
             "caption": c.get("caption", ""),
